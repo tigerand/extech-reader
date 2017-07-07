@@ -355,19 +355,16 @@ sample(void)
 	}
 }
 
-//extern "C"
-//{
-	 void *
-	thread_proc(void *arg)
-	{
-		//class extech_power_meter *parent;
+ void *
+thread_proc(void *arg)
+{
+	//class extech_power_meter *parent;
 
-		//parent = (class extech_power_meter *)arg;
-		//parent->et.sample();
-		sample();
-		return 0;
-	}
-//}
+	//parent = (class extech_power_meter *)arg;
+	//parent->et.sample();
+	sample();
+	return 0;
+}
 
  void
 end_measurement(void)
