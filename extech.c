@@ -59,14 +59,18 @@
 #include "extech.h"
 
 
-struct packet {
+struct epacket {
 	char	buf[256];
 	char	op[32];
 	double	watts;
+	double	pf;
+	double	volts;
+	double	amps;
 	int	len;
 };
 
 static struct power_meter et;
+static FILE *dfile;
 
 
  static int
@@ -140,6 +144,8 @@ setup_serial_device(int dev_fd)
 	 * get DTR and RTS line bits settings
 	 */
 	ioctl(dev_fd, TIOCMGET, &flgs);
+	debugp("DTR '%d' RTS '%d'", flgs & TIOCM_DTR ? 1 : 0,
+								flgs & TIOCM_RTS ? 1 : 0);
 
 	/*
 	 * set DTR to 1 and RTS to 0
@@ -149,6 +155,13 @@ setup_serial_device(int dev_fd)
 	ioctl(dev_fd, TIOCMSET, &flgs);
 
 	return 0;
+}
+
+ void
+print_block(char *b)
+{
+	fprintf(stderr, "%.2hhx %02hhx %02hhx %02hhx %02hhx\n", b[0], b[1], b[2],
+		b[3], b[4]);
 }
 
 
@@ -222,33 +235,45 @@ error_exit:
 }
 
  static int
-parse_packet(struct packet * p)
+parse_epacket(struct epacket * p)
 {
 	int i;
 	int ret;
+	char *val;
 
 	p->buf[p->len] = '\0';
+
+	/* write out the read data for debugging purposes */
+#ifdef DEBUG_PROTO
+	fwrite(p->buf, 1, p->len, dfile);
+#endif
 
 	/*
 	 * First character in 5 character block should be '02'
 	 * Fifth character in 5 character block should be '03'
 	 */
 	for (i = 0; i < 4; i++) {
-		if (p->buf[i * 0] != 2 || p->buf[i * 0 + 4] != 3) {
-			printf("Invalid packet\n");
+		if (p->buf[i * 5] != 2 || p->buf[(i * 5) + 4] != 3) {
+			fprintf(stderr, "Invalid packet[%d] ", i);
+			print_block(&p->buf[i * 5]);
 			return -1;
 		}
 	}
 
+	/*
+	 * this only does the first value, which is watts
+	 * order of values: watts, amps, volts, pf
+	 */
 	for (i = 0; i < 1; i++) {
-		ret = decode_extech_value(p->buf[5 * i + 2], p->buf[5 * i + 3],
+		ret = decode_extech_value(p->buf[(5 * i) + 2], p->buf[(5 * i) + 3],
 				&(p->op[8 * i]));
 		if (ret) {
-			printf("Invalid packet, conversion failed\n");
+			fprintf(stderr, "Invalid packet, conversion failed\n");
 			return -1;
 		}
 		p->watts = strtod(&(p->op[8 * i]), NULL);
 	}
+
 	return 0;
 }
 
@@ -256,7 +281,7 @@ parse_packet(struct packet * p)
  static double
 extech_read(int er_fd)
 {
-	struct packet p;
+	struct epacket p;
 	fd_set read_fd;
 	struct timeval tv;
 	int ret;
@@ -268,6 +293,9 @@ extech_read(int er_fd)
 	FD_ZERO(&read_fd);
 	FD_SET(er_fd, &read_fd);
 
+	/*
+	 * half a second timeout
+	 */
 	tv.tv_sec = 0;
 	tv.tv_usec = 500000;
 
@@ -275,16 +303,17 @@ extech_read(int er_fd)
 
 	ret = select(er_fd + 1, &read_fd, NULL, NULL, &tv);
 	if (ret <= 0) {
-		return -1;
+		return -1.;
 	}
 
-	ret = read(er_fd, &p.buf, 250);
+	ret = read(er_fd, &p.buf, 20);
+	debugp("serial read returned %d", ret);
 	if (ret < 0) {
-		return ret;
+		return (double)ret;
 	}
 	p.len = ret;
 
-	if (!parse_packet(&p)) {
+	if (!parse_epacket(&p)) {
 		return p.watts;
 	}
 
@@ -293,13 +322,16 @@ extech_read(int er_fd)
 	 * error code, then best use defines so that it's easier to use this
 	 * function and understand the meaning of this return value.
 	 */
-	return -1000.0;
+	return -1.0;
 }
 
  int
 extech_power_meter(const char *extech_name)
 {
 	int ret;
+	char date[32];
+	time_t t;
+	struct tm *biteme;
 
 	et.rate = 0.0;
 	strncpy(et.dev_name, extech_name, sizeof(et.dev_name));
@@ -319,6 +351,12 @@ extech_power_meter(const char *extech_name)
 		return ret;
 	}
 
+	t = time(NULL);
+	biteme = localtime(&t);
+	strftime(date, sizeof(date), "%D", biteme);
+	dfile = fopen("extech-debug.dat", "a");
+	fprintf(dfile, "date %s\n", date);
+
 	return 0;
 }
 
@@ -328,7 +366,7 @@ measure(void)
 {
 	/* trigger the extech to send data */
 	if (write(et.fd, " ", 1) == -1) {
-		 printf("Error: %s\n", strerror(errno));
+		 printf("write error device '%s': %s\n", et.dev_name, strerror(errno));
 	}
 
 	et.rate = extech_read(et.fd);
@@ -339,7 +377,11 @@ sample(void)
 {
 	ssize_t ret;
 	struct timespec tv;
+	double wattsread;
 
+	/*
+	 * take a reading every 1/5 of a second
+	 */
 	tv.tv_sec = 0;
 	tv.tv_nsec = 200000000;
 	while (!et.end_thread) {
@@ -350,7 +392,13 @@ sample(void)
 			continue;
 		}
 
-		et.sum += extech_read(et.fd);
+		wattsread = extech_read(et.fd);
+		if (wattsread < 0.) {
+			fprintf(stderr, "got %g return from extech_read\n", wattsread);
+			//return;
+			continue;
+		}
+		et.sum += wattsread;
 		et.samples++;
 	}
 }
@@ -376,6 +424,9 @@ end_measurement(void)
 	} else {
 		measure();
 	}
+
+	fprintf(dfile, "\n");
+	fclose(dfile);
 }
 
  void

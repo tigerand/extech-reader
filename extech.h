@@ -31,7 +31,16 @@
 #include <pthread.h>
 #include "measurement.h"
 
+#ifdef DEBUG
+# define debugp(A, B...) fprintf(stderr, A "\n", B...)
+#else
+# define debugp(A, B...)
+#endif
+
 extern int extech_power_meter(const char *_dev_name);
+extern double ex_joules_consumed(void);
+extern void start_measurement(void);
+extern void end_measurement(void);
 
 struct power_meter {
 	char dev_name[1024];
