@@ -12,6 +12,8 @@ CC := gcc
 
 MAIN=extech_rdr
 
+.PHONY: clean
+
 OBJS := \
 	extech.o		\
 	measurement.o	\
@@ -40,4 +42,15 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
 
-include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS))))
+ifneq ($(MAKECMDGOALS),clean)
+ include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS))))
+endif
+
+extech-decode: extech-decode.c
+	gcc extech-decode.c -o extech-decode
+
+extech-powermeter: extech-powermeter.c
+	gcc extech-powermeter.c -o extech-powermeter
+
+clean:
+	rm -f $(OBJS) $(MAIN) extech-decode extech-powermeter

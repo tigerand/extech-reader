@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include "extech.h"
 
+ int
 main(int argc, char **argv) {
 	int rc;
 
