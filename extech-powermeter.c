@@ -192,10 +192,10 @@ main(int argc, char **argv) {
 	setup_serial_device(ser_port_fd);
 
 	/*
-	 * take a reading every 1/2 of a second
+	 * take a reading 2.5 times a second
 	 */
 	tv.tv_sec = 0;
-	tv.tv_nsec = 500000000;
+	tv.tv_nsec = 400000000;
 
 	/*
 	 * clear out any residual values
@@ -203,6 +203,7 @@ main(int argc, char **argv) {
 	read(ser_port_fd, buf, 200);
 	nanosleep(&tv, NULL);
 	read(ser_port_fd, buf, 200);
+	nanosleep(&tv, NULL);
 
 	write(ser_port_fd, " ", 1);
 
