@@ -49,11 +49,12 @@
 #include <getopt.h>
 #include <time.h>
 #include <signal.h>
+#include <strings.h>
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
-
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include "measurement.h"
 #include "extech.h"
@@ -61,16 +62,25 @@
 
 struct epacket {
 	char	buf[256];
-	char	op[32];
-	double	watts;
-	double	pf;
-	double	volts;
-	double	amps;
-	int	len;
+	float	watts;
+	float	pf;
+	float	volts;
+	float	amps;
+	int		len;
 };
 
 static struct power_meter et;
+#ifdef DEBUG_PROTO
 static FILE *dfile;
+#endif
+
+/*
+ * these must be defined in the main line or other file
+ */
+extern struct reading *rsp;
+extern int so_rs;
+int rs;  /* the index into the rsp array */
+
 
 
  static int
@@ -239,6 +249,7 @@ parse_epacket(struct epacket * p)
 {
 	int i;
 	int ret;
+	char op[64];
 	char *val;
 
 	p->buf[p->len] = '\0';
@@ -254,44 +265,49 @@ parse_epacket(struct epacket * p)
 	 */
 	for (i = 0; i < 4; i++) {
 		if (p->buf[i * 5] != 2 || p->buf[(i * 5) + 4] != 3) {
-			fprintf(stderr, "Invalid packet[%d] ", i);
+			fprintf(stderr, "Invalid packet[%d] bookends ", i);
 			print_block(&p->buf[i * 5]);
 			return -1;
 		}
 	}
 
 	/*
-	 * this only does the first value, which is watts
 	 * order of values: watts, amps, volts, pf
 	 */
-	for (i = 0; i < 1; i++) {
-		ret = decode_extech_value(p->buf[(5 * i) + 2], p->buf[(5 * i) + 3],
-				&(p->op[8 * i]));
+	for (i = 0; i < 4; i++) {
+		ret = decode_extech_value(p->buf[(i * 5) + 2], p->buf[(i * 5) + 3],
+				&op[i * 10]);
 		if (ret) {
-			fprintf(stderr, "Invalid packet, conversion failed\n");
+			fprintf(stderr, "Invalid packet[%d] failed conversion ", i);
+			print_block(&p->buf[i * 5]);
 			return -1;
 		}
-		p->watts = strtod(&(p->op[8 * i]), NULL);
 	}
+	p->watts = strtof(&op[0], NULL);
+	p->amps = strtof(&op[10], NULL);
+	p->volts = strtof(&op[20], NULL);
+	p->pf = strtof(&op[30], NULL);
 
 	return 0;
 }
 
 
- static double
+ static struct epacket *
 extech_read(int er_fd)
 {
-	struct epacket p;
+	static struct epacket p;
 	fd_set read_fd;
 	struct timeval tv;
 	int ret;
 
 	if (er_fd < 0) {
-		return 0.0;
+		return NULL;
 	}
 
 	FD_ZERO(&read_fd);
 	FD_SET(er_fd, &read_fd);
+
+	bzero(&p, sizeof(p));
 
 	/*
 	 * half a second timeout
@@ -299,30 +315,24 @@ extech_read(int er_fd)
 	tv.tv_sec = 0;
 	tv.tv_usec = 500000;
 
-	memset(&p, 0, sizeof(p));
-
 	ret = select(er_fd + 1, &read_fd, NULL, NULL, &tv);
 	if (ret <= 0) {
-		return -1.;
+		return NULL;
 	}
 
-	ret = read(er_fd, &p.buf, 20);
+	ret = read(er_fd, &p.buf, 200);  /* why 200?  why not 20? */
 	debugp("serial read returned %d", ret);
-	if (ret < 0) {
-		return (double)ret;
+	if (ret < 20) {
+		return NULL;
 	}
 	p.len = ret;
 
-	if (!parse_epacket(&p)) {
-		return p.watts;
+	if (parse_epacket(&p) == 0) {
+		/* success */
+		return &p;
 	}
 
-	/*
-	 * this looks like a bad idea.  if it's intended to be a (negative)
-	 * error code, then best use defines so that it's easier to use this
-	 * function and understand the meaning of this return value.
-	 */
-	return -1.0;
+	return NULL;
 }
 
  int
@@ -331,7 +341,7 @@ extech_power_meter(const char *extech_name)
 	int ret;
 	char date[32];
 	time_t t;
-	struct tm *biteme;
+	struct tm *timem;
 
 	et.rate = 0.0;
 	strncpy(et.dev_name, extech_name, sizeof(et.dev_name));
@@ -352,10 +362,12 @@ extech_power_meter(const char *extech_name)
 	}
 
 	t = time(NULL);
-	biteme = localtime(&t);
-	strftime(date, sizeof(date), "%D", biteme);
+	timem = localtime(&t);
+	strftime(date, sizeof(date), "%D", timem);
+#ifdef DEBUG_PROTO
 	dfile = fopen("extech-debug.dat", "a");
 	fprintf(dfile, "date %s\n", date);
+#endif
 
 	return 0;
 }
@@ -364,26 +376,75 @@ extech_power_meter(const char *extech_name)
  void
 measure(void)
 {
+	struct epacket *mp;
+
 	/* trigger the extech to send data */
 	if (write(et.fd, " ", 1) == -1) {
 		 printf("write error device '%s': %s\n", et.dev_name, strerror(errno));
 	}
 
-	et.rate = extech_read(et.fd);
+	mp = extech_read(et.fd);
+	if (ISPOINTER(mp)) {
+		et.rate = (double)mp->watts;
+	} else {
+		et.rate = 0.;
+	}
 }
+
+
+
+
+/*
+ * store the readings for later inclusion into a database or whatever
+ */
+ void
+store_reading(struct epacket *ep)
+{
+	struct timespec res;
+	extern struct timespec startclk;
+
+ 	if (rs == 0) {
+		/*
+		 * nacent code used to determine the coarse clock resolution
+		 clock_getres(CLOCK_REALTIME_COARSE, &res);
+		 printf("\nresolution of CLOCK_REALTIME_COARSE is %ld secs %ld (%#lx) nsecs\n", res.tv_sec, res.tv_nsec, res.tv_nsec);
+		 */
+		/* which apparently is 4000000 nsecs (4 msecs) */
+
+		clock_gettime(CLOCK_REALTIME_COARSE, &startclk);
+	}
+
+	if (rs >= so_rs) {
+		//malloc(second store block);
+		//rsp = new readings store address;
+		//continue on
+		//the above isn't implemented yet, so for now we punt.  malloc
+		//latency will have to be addressed.
+		return;
+	}
+
+	clock_gettime(CLOCK_MONOTONIC_COARSE, &rsp[rs].tstamp);
+	rsp[rs].watts = ep->watts;
+	rsp[rs].pf = ep->pf;
+	rsp[rs].volts = ep->volts;
+	rsp[rs].amps = ep->amps;
+	rs++;
+}
+
 
  void
 sample(void)
 {
 	ssize_t ret;
 	struct timespec tv;
-	double wattsread;
+	float wattsread;
+	struct epacket rp, *pp;
 
 	/*
-	 * take a reading every 1/5 of a second
+	 * take a reading 2.5 times a second
 	 */
 	tv.tv_sec = 0;
-	tv.tv_nsec = 200000000;
+	tv.tv_nsec = 400000000;
 	while (!et.end_thread) {
 		nanosleep(&tv, NULL);
 		/* trigger the extech to send data */
@@ -392,14 +453,16 @@ sample(void)
 			continue;
 		}
 
-		wattsread = extech_read(et.fd);
-		if (wattsread < 0.) {
-			fprintf(stderr, "got %g return from extech_read\n", wattsread);
-			//return;
-			continue;
+		wattsread = 0.;
+
+		pp = extech_read(et.fd);
+		if (pp) {
+			rp = *pp;
+			wattsread = rp.watts;
+			et.sum += (double)wattsread;
+			et.samples++;
+			store_reading(&rp);
 		}
-		et.sum += wattsread;
-		et.samples++;
 	}
 }
 
@@ -425,8 +488,12 @@ end_measurement(void)
 		measure();
 	}
 
+#ifdef DEBUG_PROTO
 	fprintf(dfile, "\n");
 	fclose(dfile);
+#endif
+
+	printf("number of readings saved: %d\n", rs);
 }
 
  void

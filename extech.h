@@ -31,11 +31,18 @@
 #include <pthread.h>
 #include "measurement.h"
 
+#define DEBUG_PROTO 1
+
 #ifdef DEBUG
 # define debugp(A, B...) fprintf(stderr, A "\n", B...)
 #else
 # define debugp(A, B...)
 #endif
+
+/*
+ * completele numbskull hack, and won't catch negative integers and stuff
+ */
+#define ISPOINTER(A) ((unsigned long long)(A) > 0x1000ULL)
 
 extern int extech_power_meter(const char *_dev_name);
 extern double ex_joules_consumed(void);
@@ -43,15 +50,22 @@ extern void start_measurement(void);
 extern void end_measurement(void);
 
 struct power_meter {
-	char dev_name[1024];
+	char dev_name[128];
 	int fd;
 
 	double rate;
-	//void measure(void);
 	double sum;
 	int samples;
 	int end_thread;
 	pthread_t thread;
+};
+
+struct reading {
+	struct timespec tstamp;
+	float watts;
+	float pf;
+	float volts;
+	float amps;
 };
 
 #endif
