@@ -52,5 +52,8 @@ extech-decode: extech-decode.c
 extech-powermeter: extech-powermeter.c
 	gcc extech-powermeter.c -o extech-powermeter
 
+readings-dat2ascii: readings-dat2ascii.c
+	gcc readings-dat2ascii.c -o readings-dat2ascii
+
 clean:
-	rm -f $(OBJS) $(MAIN) extech-decode extech-powermeter
+	rm -f $(OBJS) $(MAIN) extech-decode extech-powermeter readings-dat2ascii
