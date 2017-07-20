@@ -234,7 +234,7 @@ main(int argc, char **argv) {
 	}
 
 	while (rc = read(ser_port_fd, buf, 20)) {
-		
+
 		if (rc < 20) {
 			fprintf(stderr, "\nread returned %d\n", rc);
 		}
@@ -288,7 +288,7 @@ main(int argc, char **argv) {
 				break;
 			}
 		}
-		
+
 		write(ser_port_fd, " ", 1);
 		printf("\r\e[K");
 	}
