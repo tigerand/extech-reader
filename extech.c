@@ -344,7 +344,7 @@ extech_power_meter(const char *extech_name)
 	struct tm *timem;
 
 	et.rate = 0.0;
-	strncpy(et.dev_name, extech_name, sizeof(et.dev_name));
+	strncpy(et.dev_name, extech_name, sizeof(et.dev_name) - 1);
 
 	et.fd = open_device(et.dev_name);
 	if (et.fd < 0) {
@@ -437,7 +437,6 @@ sample(void)
 {
 	ssize_t ret;
 	struct timespec tv;
-	float wattsread;
 	struct epacket rp, *pp;
 
 	/*
@@ -453,16 +452,18 @@ sample(void)
 			continue;
 		}
 
-		wattsread = 0.;
-
 		pp = extech_read(et.fd);
 		if (pp) {
 			rp = *pp;
-			wattsread = rp.watts;
-			et.sum += (double)wattsread;
+			et.sum += (double)rp.watts;
 			et.samples++;
-			store_reading(&rp);
 		}
+		/*
+		 * do store a failed reading as all zeroes
+		 * rs will be total number of {read attempts, values} stored; samples
+		 * will be total number of meaningful readings
+		 */
+		store_reading(&rp);
 	}
 }
 
@@ -483,7 +484,8 @@ end_measurement(void)
 	et.end_thread = 1;
 	pthread_join(et.thread, NULL);
 	if (et.samples) {
-		et.rate = et.sum / et.samples;
+		/* TODO how to compute the total watts consumed over a period of time */
+		// this is ?joules?    et.rate = et.sum / et.samples;
 	} else {
 		measure();
 	}
@@ -493,7 +495,7 @@ end_measurement(void)
 	fclose(dfile);
 #endif
 
-	printf("number of readings saved: %d\n", rs);
+	debugp("number of readings saved: %d", rs);
 }
 
  void
