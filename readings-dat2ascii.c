@@ -180,6 +180,7 @@ main(int argc, char **argv) {
 					}
 				}
 			}
+
 			if (maxv) {
 				printf("  watts      pf   volts    amps\n");
 				printf("%7.3f %7.3f %7.3f %7.3f\n", m.watts, m.pf, m.volts,
