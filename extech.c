@@ -70,7 +70,7 @@ struct epacket {
 };
 
 static struct power_meter et;
-#ifdef DEBUG_PROTO
+#ifdef EXTECH_DEBUG_PROTO
 static FILE *dfile;
 #endif
 
@@ -78,7 +78,7 @@ static FILE *dfile;
  * these must be defined in the main line or other file
  */
 extern struct reading *rsp;
-extern int so_rs;
+extern int rs_nelems;
 int rs;  /* the index into the rsp array */
 
 
@@ -168,10 +168,20 @@ setup_serial_device(int dev_fd)
 }
 
  void
-print_block(char *b)
+print_block(char *b, int bcount)
 {
-	fprintf(stderr, "%.2hhx %02hhx %02hhx %02hhx %02hhx\n", b[0], b[1], b[2],
-		b[3], b[4]);
+	if ((bcount == 0) || (bcount > 4)) {
+		debugp("%.2hhx %02hhx %02hhx %02hhx %02hhx", b[0], b[1], b[2], b[3],
+			b[4]);
+	} else if (bcount == 1) {
+		debugp("%.2hhx", b[0]);
+	} else if (bcount == 2) {
+		debugp("%.2hhx %02hhx", b[0], b[1]);
+	} else if (bcount == 3) {
+		debugp("%.2hhx %02hhx %02hhx", b[0], b[1], b[2]);
+	} else if (bcount == 4) {
+		debugp("%.2hhx %02hhx %02hhx %02hhx", b[0], b[1], b[2], b[3]);
+	}
 }
 
 
@@ -255,7 +265,7 @@ parse_epacket(struct epacket * p)
 	p->buf[p->len] = '\0';
 
 	/* write out the read data for debugging purposes */
-#ifdef DEBUG_PROTO
+#ifdef EXTECH_DEBUG_PROTO
 	fwrite(p->buf, 1, p->len, dfile);
 #endif
 
@@ -266,7 +276,7 @@ parse_epacket(struct epacket * p)
 	for (i = 0; i < 4; i++) {
 		if (p->buf[i * 5] != 2 || p->buf[(i * 5) + 4] != 3) {
 			fprintf(stderr, "Invalid packet[%d] bookends ", i);
-			print_block(&p->buf[i * 5]);
+			print_block(&p->buf[i * 5], 5);
 			return -1;
 		}
 	}
@@ -279,7 +289,7 @@ parse_epacket(struct epacket * p)
 				&op[i * 10]);
 		if (ret) {
 			fprintf(stderr, "Invalid packet[%d] failed conversion ", i);
-			print_block(&p->buf[i * 5]);
+			print_block(&p->buf[i * 5], 0);
 			return -1;
 		}
 	}
@@ -293,12 +303,15 @@ parse_epacket(struct epacket * p)
 
 
  static struct epacket *
-extech_read(int er_fd)
+extech_read(int er_fd, int nbytes)
 {
 	static struct epacket p;
 	fd_set read_fd;
 	struct timeval tv;
 	int ret;
+#ifdef DEBUG
+	int jm;
+#endif /* DEBUG */
 
 	if (er_fd < 0) {
 		return NULL;
@@ -320,9 +333,17 @@ extech_read(int er_fd)
 		return NULL;
 	}
 
-	ret = read(er_fd, &p.buf, 200);  /* why 200?  why not 20? */
+	ret = read(er_fd, &p.buf[0], nbytes);
 	debugp("serial read returned %d", ret);
 	if (ret < 20) {
+#ifdef DEBUG
+		if (ret > 0) {
+			for (jm = 0; jm < ret; jm += 5) {
+				/* joe momma */
+				print_block(&p.buf[jm], ret - jm);
+			}
+		}
+#endif /* DEBUG */
 		return NULL;
 	}
 	p.len = ret;
@@ -342,6 +363,7 @@ extech_power_meter(const char *extech_name)
 	char date[32];
 	time_t t;
 	struct tm *timem;
+	struct epacket *gp;
 
 	et.rate = 0.0;
 	strncpy(et.dev_name, extech_name, sizeof(et.dev_name) - 1);
@@ -364,10 +386,12 @@ extech_power_meter(const char *extech_name)
 	t = time(NULL);
 	timem = localtime(&t);
 	strftime(date, sizeof(date), "%D", timem);
-#ifdef DEBUG_PROTO
-	dfile = fopen("extech-debug.dat", "a");
+#ifdef EXTECH_DEBUG_PROTO
+	dfile = fopen("extech-proto-debug.dat", "a");
 	fprintf(dfile, "date %s\n", date);
 #endif
+	ret = write(et.fd, " ", 1);
+	gp = extech_read(et.fd, 1); /* try to gobble an 'fe', whatever that means */
 
 	return 0;
 }
@@ -383,8 +407,12 @@ measure(void)
 		 printf("write error device '%s': %s\n", et.dev_name, strerror(errno));
 	}
 
-	mp = extech_read(et.fd);
+	mp = extech_read(et.fd, 25);
 	if (ISPOINTER(mp)) {
+		/*
+		 * a single 'measure' gives instantaneous watts in et.rate.
+		 * ... kinda confusing
+		 */
 		et.rate = (double)mp->watts;
 	} else {
 		et.rate = 0.;
@@ -407,14 +435,15 @@ store_reading(struct epacket *ep)
 		/*
 		 * nacent code used to determine the coarse clock resolution
 		 clock_getres(CLOCK_REALTIME_COARSE, &res);
-		 printf("\nresolution of CLOCK_REALTIME_COARSE is %ld secs %ld (%#lx) nsecs\n", res.tv_sec, res.tv_nsec, res.tv_nsec);
+		 printf("\nresolution of CLOCK_REALTIME_COARSE is %ld secs %ld (%#lx)
+			nsecs\n", res.tv_sec, res.tv_nsec, res.tv_nsec);
 		 */
 		/* which apparently is 4000000 nsecs (4 msecs) */
 
 		clock_gettime(CLOCK_REALTIME_COARSE, &startclk);
 	}
 
-	if (rs >= so_rs) {
+	if (rs >= rs_nelems) {
 		//malloc(second store block);
 		//rsp = new readings store address;
 		//continue on
@@ -452,12 +481,14 @@ sample(void)
 			continue;
 		}
 
-		pp = extech_read(et.fd);
+		pp = extech_read(et.fd, 200);  /* why 200?  why not 20? or 250? */
 		if (pp) {
 			rp = *pp;
-			et.sum += (double)rp.watts;
+			/* et.sum is therefore the running number of joules */
+			et.sum += (double)rp.watts * ((double)tv.tv_nsec / 1000000000.);
 			et.samples++;
 		}
+
 		/*
 		 * do store a failed reading as all zeroes
 		 * rs will be total number of {read attempts, values} stored; samples
@@ -470,10 +501,6 @@ sample(void)
  void *
 thread_proc(void *arg)
 {
-	//class extech_power_meter *parent;
-
-	//parent = (class extech_power_meter *)arg;
-	//parent->et.sample();
 	sample();
 	return 0;
 }
@@ -484,13 +511,22 @@ end_measurement(void)
 	et.end_thread = 1;
 	pthread_join(et.thread, NULL);
 	if (et.samples) {
-		/* TODO how to compute the total watts consumed over a period of time */
-		// this is ?joules?    et.rate = et.sum / et.samples;
+		/*
+		 * et.rate = et.sum / 60 == watt-hours
+		 * reading duration in seconds could be calculated thusly:
+		 * readings_store[rs - 1].tstamp - readings_store[0].tstamp
+		 * but et.sum is in joules, or watt-seconds
+		 */
+		// et.rate = et.sum / et.samples; (orig. code took 5 samples/s)
+		// this is joules?
+		// NO, it isn't -otherbarry
+
+		 et.rate = et.sum / 60.;
 	} else {
 		measure();
 	}
 
-#ifdef DEBUG_PROTO
+#ifdef EXTECH_DEBUG_PROTO
 	fprintf(dfile, "\n");
 	fclose(dfile);
 #endif
