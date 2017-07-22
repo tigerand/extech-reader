@@ -1,0 +1,25 @@
+#!/bin/bash
+
+IBS=20
+
+fsize() {
+	ls -l "$1" | awk '{print $5;}'
+}
+
+usage() {
+	local PROGN=`basename $0`
+	echo "$PROGN: $PROGN <input-file-name> <output-file-name>"
+}
+
+if [ "$#" -ne 2 ] ; then
+	echo "Wrong # of arguments: $#.  Should be 2."
+	usage
+	exit 1
+fi
+
+if [ -e "$2" ] ; then
+	echo "Output file '$2' already exists.  Choose another name."
+	exit 1
+fi
+
+dd if="$1" of="$2" ibs=$IBS skip=14 iflag=skip_bytes,fullblock count=$((`fsize $1` / $IBS))

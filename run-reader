@@ -1,0 +1,23 @@
+#!/bin/bash
+
+fnum() {
+	printf "%.2d" $1
+}
+
+LRFILE=`ls readings.dat.* | tail -1`
+LRFNUM=${LRFILE##*.}
+
+for((;;)); do
+	N=${LRFNUM#0}
+	if [ "$N" != "$LRFNUM" ] ; then
+		LRFNUM="$N"
+		continue
+	fi
+	break
+done
+
+for ((J=LRFNUM + 1; J < LRFNUM + "$1" + 1; J++)); do
+	#echo ./extech_rdr --storefile=readings.dat.`fnum $J` /dev/ttyUSB0 10 "2>debug-out.`fnum $J`;" mv extech-proto-debug.dat extech-proto-debug.dat.`fnum $J`
+	./extech_rdr --storefile=readings.dat.`fnum $J` /dev/ttyUSB0 10 2>debug-out.`fnum $J`
+	mv extech-proto-debug.dat extech-proto-debug.dat.`fnum $J`
+done
