@@ -2,7 +2,7 @@
 *.cpp
 extech_rdr
 .d/
-debug-out
+debug-out*
 extech-debug.dat*
 extech-decode
 extech-powermeter
@@ -10,3 +10,4 @@ extech-powermeter
 readings-dat2ascii
 readings.dat.??
 readings-v0.1.dat.??
+extech-proto-debug.dat*
