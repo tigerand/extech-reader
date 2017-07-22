@@ -25,14 +25,10 @@
  * Authors:
  *	Arjan van de Ven <arjan@linux.intel.com>
  */
-//#include "sysfs.h"
-//#include "../parameters/parameters.h"
-//#include "../lib.h"
 
-#include <sys/types.h>
-#include <dirent.h>
-#include <stdio.h>
-#include <unistd.h>
+//#include "sysfs.h"
+
+//#include <sys/types.h>
 #include "measurement.h"
 #include "extech.h"
 
