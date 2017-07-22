@@ -31,10 +31,13 @@
 #include <pthread.h>
 #include "measurement.h"
 
-#define DEBUG_PROTO 1
+#define EXTECH_DEBUG_PROTO 1
+
+#define DEBUG
+#undef DEBUG
 
 #ifdef DEBUG
-# define debugp(A, B...) fprintf(stderr, A "\n", B...)
+# define debugp(A, B...) fprintf(stderr, A "\n", B)
 #else
 # define debugp(A, B...)
 #endif
