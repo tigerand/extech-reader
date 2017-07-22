@@ -151,7 +151,7 @@ struct reading *rsp;
 
 struct reading readings_store[RS_NELEMENTS];
 
-int so_rs;
+int rs_nelems;
 extern int rs;  /* write index into the readings_store array */
 
 struct timespec startclk;
@@ -243,7 +243,7 @@ printf("optind=%d, optopt=%#x, argx=%d\n", optind, optopt, argx);
 	 * initialize rsp for use by linked functions
 	 */
 	rsp = &readings_store[0];
-	so_rs = RS_NELEMENTS;
+	rs_nelems = RS_NELEMENTS;
 
 	// printf("size of readings_store: %ld\n", sizeof(readings_store));
 	// for RS_NELEMENTS=9000, this is 288000, or 281.25 KiB
@@ -258,7 +258,7 @@ printf("optind=%d, optopt=%#x, argx=%d\n", optind, optopt, argx);
 	sleep(mperiod);
 	end_measurement();
 
-	printf("watts consumed: %g\n", ex_joules_consumed());
+	printf("watt-hours consumed: %g\n", ex_joules_consumed());
 
 	/*
 	 * print out the max values
