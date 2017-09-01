@@ -171,8 +171,8 @@ setup_serial_device(int dev_fd)
 print_block(char *b, int bcount)
 {
 	if ((bcount == 0) || (bcount > 4)) {
-		debugp("%.2hhx %02hhx %02hhx %02hhx %02hhx", b[0], b[1], b[2], b[3],
-			b[4]);
+		fprintf(stderr, "%.2hhx %02hhx %02hhx %02hhx %02hhx", b[0], b[1], b[2],
+			b[3], b[4]);
 	} else if (bcount == 1) {
 		debugp("%.2hhx", b[0]);
 	} else if (bcount == 2) {
@@ -277,6 +277,9 @@ parse_epacket(struct epacket * p)
 		if (p->buf[i * 5] != 2 || p->buf[(i * 5) + 4] != 3) {
 			fprintf(stderr, "Invalid packet[%d] bookends ", i);
 			print_block(&p->buf[i * 5], 5);
+#if !defined DEBUG
+			fprintf(stderr, "\n");
+#endif
 			return -1;
 		}
 	}
@@ -290,6 +293,9 @@ parse_epacket(struct epacket * p)
 		if (ret) {
 			fprintf(stderr, "Invalid packet[%d] failed conversion ", i);
 			print_block(&p->buf[i * 5], 0);
+#if !defined DEBUG
+			fprintf(stderr, "\n");
+#endif
 			return -1;
 		}
 	}
@@ -339,7 +345,6 @@ extech_read(int er_fd, int nbytes)
 #ifdef DEBUG
 		if (ret > 0) {
 			for (jm = 0; jm < ret; jm += 5) {
-				/* joe momma */
 				print_block(&p.buf[jm], ret - jm);
 			}
 		}
@@ -467,7 +472,9 @@ sample(void)
 	ssize_t ret;
 	struct timespec tv;
 	struct epacket rp, *pp;
+	double inter;
 
+	inter = 0.0;
 	/*
 	 * take a reading 2.5 times a second
 	 */
@@ -481,16 +488,26 @@ sample(void)
 			continue;
 		}
 
+		inter = inter + ((double)tv.tv_nsec / 1000000000.);
+
 		pp = extech_read(et.fd, 200);  /* why 200?  why not 20? or 250? */
+		/*
+		 * if the read/decode failed, then go with the last packet again.
+		 * if there hasn't been a successful packet yet, it will be all zeroes.
+		 */
 		if (pp) {
 			rp = *pp;
-			/* et.sum is therefore the running number of joules */
-			et.sum += (double)rp.watts * ((double)tv.tv_nsec / 1000000000.);
-			et.samples++;
+		} else {
+			/* possibly some sort of error msg about bad packet index */
+			continue;
 		}
 
+		/* et.sum is therefore the running number of joules */
+		et.sum += (double)rp.watts * inter;
+		inter = 0.0;
+		et.samples++;
+
 		/*
-		 * do store a failed reading as all zeroes
 		 * rs will be total number of {read attempts, values} stored; samples
 		 * will be total number of meaningful readings
 		 */
