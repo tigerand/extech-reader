@@ -5,10 +5,108 @@
 #include <termios.h>
 #include <ctype.h>
 #include <time.h>
+#include <getopt.h>
+#include <string.h>
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include "../../../../../software/perrno/perrno.h"
 #include "extech.h"
+
+
+char **argvec;
+int scroll_opt = 0; /* means scroll the output rather than updating one line */
+int helpout = 0;    /* output basic help text */
+
+struct option ep_opts[] = {
+	{
+		"scroll",
+		no_argument,
+		&scroll_opt,
+		1
+	},
+	{
+		"help",
+		no_argument,
+		&helpout,
+		1
+	},
+	{}
+};
+
+char *main_helptxt =
+"This program turns your terminal into a display for the extech 380801/380803\n"
+"line of power meters.  So you don't have to hover over the meter to watch\n"
+"readings on the meter.  It gets the readings from the serial port on the\n"
+"meter.";
+
+char *opt_help[] = {
+"	This option makes the output scroll, rather than updating one line\n"
+"	of display continuously.",
+
+"	Output this help text.",
+
+	NULL,
+};
+
+ void
+usage(int argn, char *estring)
+{
+	char *argstr;
+	int x;
+
+	if (argn > 0) {
+		printf("%s: for option %s\n", estring, ep_opts[argn].name);
+	} else if (argn == 0) {
+		/* if both arguments are 0, then usage can be used for basic help */
+		if (estring) {
+			printf("invalid option '%s'\n", estring);
+		}
+	}
+	printf("\n");
+	printf("usage: %s [<options>] <serial-port-device>\n\n", argvec[0]);
+	printf(main_helptxt);
+	printf("\n\n");
+	printf("The valid options are:\n\n");
+	for (x = 0; ep_opts[x].name; x++) {
+		switch (ep_opts[x].has_arg) {
+			case required_argument:
+				argstr = "=<arg>";
+				break;
+			case optional_argument:
+				argstr = "[=<arg>]";
+				break;
+			default:
+				argstr = "";
+				break;
+		}
+		printf("--%s%s\n", ep_opts[x].name, argstr);
+		printf(opt_help[x]);
+		printf("\n");
+	}
+}
+
+
+/*
+ * see if a file is a device node
+ */
+ static int
+is_dev(char *dname)
+{
+	struct stat st;
+
+	stat(dname, &st);
+	/*
+	 * should we really allow block devices?  i guess so, i mean, whatever
+	 */
+	if (S_ISBLK(st.st_mode) || S_ISCHR(st.st_mode) || S_ISFIFO(st.st_mode)
+		|| S_ISSOCK(st.st_mode)) {
+		return 1;
+	}
+
+	return 0;
+}
+
 
  int
 open_device(const char *device_name)
@@ -31,6 +129,31 @@ open_device(const char *device_name)
 	}
 
 	ret = open(device_name, O_RDWR | O_NONBLOCK | O_NOCTTY);
+	if (ret < 0) {
+		return -1;
+	}
+
+	return ret;
+}
+
+
+ int
+open_file(const char *fname)
+{
+	struct stat s;
+	int ret;
+
+	ret = stat(fname, &s);
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = access(fname, R_OK);
+	if (ret) {
+		return -1;
+	}
+
+	ret = open(fname, O_RDONLY | O_NONBLOCK); /* not sure about the nonblock */
 	if (ret < 0) {
 		return -1;
 	}
@@ -148,9 +271,9 @@ decode_extech_value(unsigned char byt3, unsigned char byt4, char *a)
 	for (i = 1; i < 4; i++) {
 		int dig = ((input & digit_map[i]) >> digit_shift[i]);
 		dig = revnum[dig];
-		if (dig > 0xa) {
-			goto error_exit;
-		}
+		//if (dig > 0xa) {
+			//goto error_exit;
+		//}
 
 		a[idx++] = '0' + dig;
 	}
@@ -170,6 +293,10 @@ error_exit:
 }
 
 
+int is_dfile = 0; /* set to 1 if "serial device" is actually a device file */
+int is_rfile = 0; /* set to 1 if "serial device" is a regular file */
+
+
  int
 main(int argc, char **argv) {
 	unsigned char buf[256];
@@ -180,32 +307,61 @@ main(int argc, char **argv) {
 	struct termios ti; /* termios to set */
 	struct termios ts; /* place to store/save termios */
 	int flgs;
+	int argx;
+
+
+	argvec = argv;
+
+	/*
+	 * process args
+	 */
+	do {
+		rc = getopt_long(argc, argv, ":h", &ep_opts[0], &argx);
+		switch (rc) {
+			case ':':
+				usage(argx, "missing required argument");
+				exit(1);
+			case '?':
+				usage(0, argv[optind - 1]);
+				exit(1);
+			case 'h':
+				helpout = 1;
+				break;
+			case 0:
+				/*
+				 * check which option this is, and process option args if needed
+				 */
+				break;
+		}
+	} while (rc != -1);
+
+	if (helpout) {
+		usage(0, NULL);
+		exit(0);
+	}
+
+	if ((argv[optind] == NULL) || (strlen(argv[optind]) == 0)) {
+		printf("error: first argument must be serial port device file\n");
+		usage(0, NULL);
+		exit(1);
+	}
 
 	/*
 	 * open the device and then screw with all the settings
 	 */
-	ser_port_fd = open_device(argv[1]);
+	if (is_dev(argv[optind])) {
+		ser_port_fd = open_device(argv[optind]);
+		setup_serial_device(ser_port_fd);
+		is_dfile = 1;
+	} else {
+		ser_port_fd = open_file(argv[optind]);
+		is_rfile = 1;
+	}
 	if (ser_port_fd < 0) {
-		fprintf(stderr, "failed to open '%s' - errno %d\n", argv[1], errno);
+		fprintf(stderr, "failed to open '%s' - errno %d\n", argv[optind],
+			errno);
 		exit(1);
 	}
-	setup_serial_device(ser_port_fd);
-
-	/*
-	 * take a reading 2.5 times a second
-	 */
-	tv.tv_sec = 0;
-	tv.tv_nsec = 400000000;
-
-	/*
-	 * clear out any residual values
-	 */
-	read(ser_port_fd, buf, 200);
-	nanosleep(&tv, NULL);
-	read(ser_port_fd, buf, 200);
-	nanosleep(&tv, NULL);
-
-	write(ser_port_fd, " ", 1);
 
 	/*
 	 * set stdin to non blocking and no ints
@@ -233,10 +389,51 @@ main(int argc, char **argv) {
 		exit(1);
 	}
 
-	while (rc = read(ser_port_fd, buf, 20)) {
+	/*
+	 * take a reading 2.5 times a second
+	 */
+	tv.tv_sec = 0;
+	tv.tv_nsec = 400000000;
 
-		if (rc < 20) {
-			fprintf(stderr, "\nread returned %d\n", rc);
+	if (is_dfile) {
+		/*
+		 * clear out any residual values in power meter output queue
+		 */
+		read(ser_port_fd, buf, 200);
+		nanosleep(&tv, NULL);
+	}
+	printf("\n");
+
+	do {
+		if (is_dfile) {
+			/*
+			 * wait just a tad
+			 */
+			nanosleep(&tv, NULL);
+			/* send the "give me a reading" cmd char to powermeter */
+			write(ser_port_fd, " ", 1);
+		}
+
+		rc = read(ser_port_fd, buf, 40);
+
+		if ((rc >= 0) && (rc < 20)) {
+			//fprintf(stderr, "\nread returned %d\n", rc);
+			/*
+			 * short read?  get out of the car, walk around it,
+			 * get back in, and try again
+			 */
+			continue;
+		} else if (rc == -1) {
+			if (errno == EAGAIN) {
+				if (is_rfile) {
+					/* eof */
+					break;
+				}
+				continue;
+			}
+			fprintf(stderr, "\nread returned %d, errno = %d(%s)\n", rc, errno,
+				perrno(errno) ?: "NULL");
+			continue;
 		}
 
 		/*
@@ -275,23 +472,27 @@ main(int argc, char **argv) {
 			printf("amps: %s", out);
 		}
 		fflush(stdout);
-		/*
-		 * move cursor to beginning of line and clear line
-		 */
-		nanosleep(&tv, NULL);
 
 		/*
 		 * bust out of here if user typed 'q'
 		 */
 		if (read(0, buf, 1) == 1) {
-			if (buf[0] == 'q') {
+			if ((buf[0] == 'q') || (buf[0] == 0x3)) {
 				break;
 			}
 		}
 
-		write(ser_port_fd, " ", 1);
-		printf("\r\e[K");
-	}
+		/*
+		 * move cursor to beginning of line and clear line
+		 */
+		if (!scroll_opt) {
+			printf("\r\e[K");
+		} else {
+			printf("\n");
+		}
+	} while (1);
+
+	close(ser_port_fd);
 
 	tcflush(0, TCIFLUSH); /* discard any unread characters from stdin */
 
