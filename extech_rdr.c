@@ -13,6 +13,7 @@
 #include <time.h>
 #include <getopt.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "extech.h"
@@ -72,14 +73,14 @@ char *opt_help[] = {
 };
 
  void
-usage(int argx, char *estring)
+usage(int argn, char *estring)
 {
 	char *argstr;
 	int x;
 
-	if (argx > 0) {
-		printf("%s: for option %s\n", estring, er_opts[argx].name);
-	} else if (argx == 0) {
+	if (argn > 0) {
+		printf("%s: for option %s\n", estring, er_opts[argn].name);
+	} else if (argn == 0) {
 		/* if both arguments are 0, then usage can be used for basic help */
 		if (estring) {
 			printf("invalid option '%s'\n", estring);
@@ -147,7 +148,7 @@ is_rdev(char *dname)
  * dynamically allocate more arrays in addition to the static one.
  * or just do it all dynamically.
  */
-struct reading *rsp; 
+struct reading *rsp;
 
 struct reading readings_store[RS_NELEMENTS];
 
@@ -155,6 +156,28 @@ int rs_nelems;
 extern int rs;  /* write index into the readings_store array */
 
 struct timespec startclk;
+
+int usr1sigrcv = 0;
+
+ void *
+usr1handler(int signum, siginfo_t *si, void *ucont)
+{
+	ucontext_t *ucontxt = ucont;
+
+	usr1sigrcv = 1;
+}
+
+sigset_t nullsst = {};
+/*
+ * struct sigaction usr1sigact = {
+ *	sa_sigaction : usr1handler,
+ *	sa_flags : SA_SIGINFO
+ * };
+ */
+struct sigaction usr1sigact = {
+	{usr1handler},
+	sa_flags : SA_SIGINFO
+};
 
 
  int
@@ -236,7 +259,15 @@ printf("optind=%d, optopt=%#x, argx=%d\n", optind, optopt, argx);
 	}
 	if (mperiod == 0) {
 		mperiod = 3600;
-		/* TODO set up signal handler for sigusr1 */
+		/*
+		 * probably easier to just use siginterrupt(3) instead
+		 */
+		sigemptyset(&usr1sigact.sa_mask);
+		rc = sigaction(SIGUSR1, &usr1sigact, NULL);
+		if (rc == -1) {
+			printf("Sigaction for USR1 signal failed.  errno = %d\n", errno);
+			exit(1);
+		}
 	}
 
 	/*
@@ -255,7 +286,11 @@ printf("optind=%d, optopt=%#x, argx=%d\n", optind, optopt, argx);
 	}
 	printf("starting measurement process and sleeping for %ds...\n", mperiod);
 	start_measurement();
-	sleep(mperiod);
+	rc = sleep(mperiod);
+	debugp("sleep returned %d, errno = %d", rc, errno);
+	if ((rc > 0) && (errno == EINTR) && (usr1sigrcv)) {
+		printf("sigusr1 rec'v after %d seconds\n", mperiod - rc);
+	}
 	end_measurement();
 
 	printf("watt-hours consumed: %g\n", ex_joules_consumed());
