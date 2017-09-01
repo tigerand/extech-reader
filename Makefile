@@ -49,7 +49,7 @@ endif
 extech-decode: extech-decode.c
 	gcc extech-decode.c -o extech-decode
 
-extech-powermeter: extech-powermeter.c
+extech-powermeter: extech-powermeter.c ../../../../../software/perrno/perrno.h
 	gcc extech-powermeter.c -o extech-powermeter
 
 readings-dat2ascii: readings-dat2ascii.c
