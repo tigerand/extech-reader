@@ -202,7 +202,6 @@ main(int argc, char **argv) {
 				exit(1);
 			case '?':
 				usage(0, argv[optind - 1]);
-printf("optind=%d, optopt=%#x, argx=%d\n", optind, optopt, argx);
 				exit(1);
 			case 0:
 				/*
