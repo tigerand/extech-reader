@@ -363,6 +363,14 @@ main(int argc, char **argv) {
 		exit(1);
 	}
 
+/*
+	rc = fcntl(0, F_GETFL, NULL);
+	printf("stdin flags: %#o\n", rc);
+	fflush(stdout);
+	* check if stdin is a tty, CTTY or whatever, and if not, close it
+	* otherwise, when run in background, redirect stdin from /dev/null
+ */
+
 	/*
 	 * set stdin to non blocking and no ints
 	 * so we can check for a 'q' w/o getting stuck
