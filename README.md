@@ -10,6 +10,6 @@ extech-reader repository
 * couple of shell scripts to help out here and there with sorting and other things.
 
 ###Known bugs:
-* sometimes the reading doesn't come out right.  this is due to bugs in the code that translates the bits received from the meter into a reading.  since that code was riffed from another program, i never actually went back and fixed the code myself.  but i did get the protocol documentation from Extech, so if i ever felt motivated, i could go back and fix it.  doesn't happen all that often though.
+* sometimes the readings doesn't come out right.  this is due to bugs in the code that translates the bits received from the meter into a reading.  since that code was riffed from another program, i never actually went back and fixed the code myself.  but i did get the protocol documentation from Extech, so if i ever felt motivated, i could go back and fix it.  doesn't happen all that often though.
 
 
