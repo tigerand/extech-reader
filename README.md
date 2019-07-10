@@ -7,9 +7,9 @@ extech-reader repository
 * extech-powermeter - like having the power meter on your terminal, instead of back in the lab.  can store readings to a file in ascii format, which can later be sorted and whatnot.
 * extech-decode - decode readings stored by extech-rdr
 
-* couple of shell scripts to help out here and there with sorting and other things.
+* additional shell scripts to help out here and there with sorting and decoding and debugging and other things.
 
 ###Known bugs:
-* sometimes the readings doesn't come out right.  this is due to bugs in the code that translates the bits received from the meter into a reading.  since that code was riffed from another program, i never actually went back and fixed the code myself.  but i did get the protocol documentation from Extech, so if i ever felt motivated, i could go back and fix it.  doesn't happen all that often though.
+* Sometimes the readings doesn't come out right.  This is due to bugs in the code that translates the bits received from the meter into a reading (number).  Since that code was riffed from another program, I never actually went back and fixed the code myself.  But I did get the protocol documentation from Extech, so if I ever felt motivated, I could go back and fix it.  Since this doesn't happen enough to really be too annoying, it gets back-burnered in perpetuity.
 
 
