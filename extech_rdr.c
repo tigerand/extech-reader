@@ -1,8 +1,30 @@
 /*
- * Copyright 2017, Low Power Company, Inc.
- * Copyright 2017, Andrew Sharp
+ * Copyright 2017-2019, Low Power Company, Inc.
+ * Copyright 2017-2019, Andrew Sharp
  *
  * Program to read the measured values from an extech power meter
+ *
+ * A run is made collecting power readings from the meter for the
+ * specified period in seconds.  The total amount of power consumed in
+ * watts over the course of the run is then output to stdout.
+ *
+ * There's two additional modes of operation: using the max option
+ * will output to stdout the max reading during the run; using the
+ * store-file option will store the readings taken during the run to
+ * a file.  the stored readings can then be post-processed by various
+ * helper programs, or you can write your own.
+ *
+ * A time value for how many seconds the program will run must always be
+ * specified on the command line.  Using zero as the number of seconds to
+ * run will cause the program to run for the maximum, which at the time of
+ * this writing is 3600 seconds (1 hour).  This is changeable by changing
+ * the MAX_MPERIOD define.  But it will also allow you to send SIGUSR1
+ * to the program which will cause it to stop taking readings at that
+ * time, and compute the amount of watts consumed accordingly.
+ *
+ * the MAX values possibly are not the same max that you would
+ * get from the MAX button on the extech power meter.  see comments in
+ * that code for more information.
  */
 
 #include <stdio.h>
@@ -18,6 +40,7 @@
 #include <sys/stat.h>
 #include "extech.h"
 
+#define MAX_MPERIOD 3600 /* maximum number of seconds for a run */
 
 /*
  * argument specification
@@ -159,18 +182,16 @@ struct timespec startclk;
 
 int usr1sigrcv = 0;
 
- void *
-usr1handler(int signum, siginfo_t *si, void *ucont)
+ void
+usr1handler(int signum)
 {
-	ucontext_t *ucontxt = ucont;
-
 	usr1sigrcv = 1;
 }
 
 sigset_t nullsst = {};
 /*
  * struct sigaction usr1sigact = {
- *	sa_sigaction : usr1handler,
+ *	sa_handler : usr1handler,
  *	sa_flags : SA_SIGINFO
  * };
  */
@@ -184,7 +205,7 @@ struct sigaction usr1sigact = {
 main(int argc, char **argv) {
 	int rc;
 	int storefile_fd;
-	char storefile[256];
+	char storefile[1024];
 	int argx;
 	char *serialp;
 	int mperiod;
@@ -252,12 +273,14 @@ main(int argc, char **argv) {
 	 * get the measurement period
 	 */
 	mperiod = (int)strtol(argv[optind + 1], NULL, 0);
-	if ((mperiod > 3600) || (mperiod < 0)) {
-		printf("measurement period '%d' outside of allowable range (0 - 3600) seconds\n0 means measure until SIGUSR1 signal received (max 3600s)\n", mperiod);
+	if ((mperiod > MAX_MPERIOD) || (mperiod < 0)) {
+		printf("measurement period '%d' outside allowable range of 0 - %d seconds\n"
+			"0 means measure until SIGUSR1 signal received (max %ds)\n",
+			MAX_MPERIOD, mperiod, MAX_MPERIOD);
 		exit(1);
 	}
 	if (mperiod == 0) {
-		mperiod = 3600;
+		mperiod = MAX_MPERIOD; /* 1 hour */
 		/*
 		 * probably easier to just use siginterrupt(3) instead
 		 */
@@ -275,32 +298,48 @@ main(int argc, char **argv) {
 	rsp = &readings_store[0];
 	rs_nelems = RS_NELEMENTS;
 
-	// printf("size of readings_store: %ld\n", sizeof(readings_store));
+	debugp("size of readings_store: %ld\n", sizeof(readings_store));
 	// for RS_NELEMENTS=9000, this is 288000, or 281.25 KiB
 
+	/*
+	 * open the device and initialize the power meter
+	 */
 	rc = extech_power_meter(serialp);
 	if (rc) {
 		fprintf(stderr, "extech_power_meter returned errno '%d'\n", rc);
 		exit(1);
 	}
 	printf("starting measurement process and sleeping for %ds...\n", mperiod);
+
+	/* starts the measurement reading thread */
 	start_measurement();
+
+	/* sleep for the number of seconds the readings are to be collected */
 	rc = sleep(mperiod);
 	debugp("sleep returned %d, errno = %d", rc, errno);
 	if ((rc > 0) && (errno == EINTR) && (usr1sigrcv)) {
 		printf("sigusr1 rec'v after %d seconds\n", mperiod - rc);
 	}
+
+	/* reap the thread and clean up */
 	end_measurement();
 
 	printf("watt-hours consumed: %g\n", ex_joules_consumed());
 
 	/*
-	 * print out the max values
+	 * compute and print out the max values
 	 */
 	if (maxv) {
 		struct reading m = {{0, 0}, 0, 0, 0, 0};
 		int rx = 0;
 
+		/*
+		 * what is correct way to do this?  perhaps it is more correct
+		 * to find the max watts, then take the other readings for that
+		 * index as the other maxes.  that way, the amps, volts
+		 * and pf would properly compute out to the watts number,
+		 * whereas this way, they won't.
+		 */
 		for (rx = 0; rx < rs; rx++) {
 			if (readings_store[rx].watts > m.watts) {
 				m.watts = readings_store[rx].watts;
@@ -326,7 +365,8 @@ main(int argc, char **argv) {
 
 	if (storefile_opt) {
 		/*
-		 * save the readings in a binary file
+		 * save the readings to a file, binary.  not tested
+		 * trying to save to stdout, therefore that won't work.
 		 */
 		storefile_fd = open(storefile, O_CREAT | O_EXCL | O_RDWR, 0644);
 		if (storefile_fd < 0 ) {
