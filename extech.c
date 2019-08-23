@@ -1,6 +1,6 @@
 /*
- * Copyright 2017, Low Power Company, Inc.
- * Copyright 2017, Andrew Sharp
+ * Copyright 2017-2019, Low Power Company, Inc.
+ * Copyright 2017-2019, Andrew Sharp
  *
  *	extech - Program for controlling the extech Device
  *	This file was part of PowerTOP
@@ -83,6 +83,10 @@ int rs;  /* the index into the rsp array */
 
 
 
+/*
+ * open the character device file of the serial port that is connected to the
+ * power meter's serial port
+ */
  static int
 open_device(const char *device_name)
 {
@@ -112,6 +116,9 @@ open_device(const char *device_name)
 }
 
 
+/*
+ * after the device file is open, do some bad things to it with a fork
+ */
  static int
 setup_serial_device(int dev_fd)
 {
@@ -146,6 +153,9 @@ setup_serial_device(int dev_fd)
 	}
 
 	/*
+	 * i have no idea what this next comment means.  -abs
+	 */
+	/*
 	 * Root caused by Rajiv Kapoor. Without this extech reads
 	 * will fail
 	 */
@@ -167,6 +177,9 @@ setup_serial_device(int dev_fd)
 	return 0;
 }
 
+/*
+ * output a bunch of readings in hex.  mainly used for debugging.
+ */
  void
 print_block(char *b, int bcount)
 {
@@ -185,6 +198,12 @@ print_block(char *b, int bcount)
 }
 
 
+/*
+ * the dat that comes from the extech meter is encoded in a funky pseudo
+ * EBCIDIC like encoding, i guess to get the data transmitted in the fewest
+ * bytes possible, for the old days when serial ports ran at 9600 baud
+ * and like that
+ */
  static unsigned int
 decode_extech_value(unsigned char byt3, unsigned char byt4, char *a)
 {
@@ -254,6 +273,9 @@ error_exit:
 	return -1;
 }
 
+/*
+ * parse a line read from the meter and decode the values
+ */
  static int
 parse_epacket(struct epacket * p)
 {
@@ -308,6 +330,9 @@ parse_epacket(struct epacket * p)
 }
 
 
+/*
+ * actually read a line of data from the meter
+ */
  static struct epacket *
 extech_read(int er_fd, int nbytes)
 {
@@ -361,6 +386,10 @@ extech_read(int er_fd, int nbytes)
 	return NULL;
 }
 
+/*
+ * open the device file and initialize the power meter to start getting
+ * readings feed
+ */
  int
 extech_power_meter(const char *extech_name)
 {
@@ -402,6 +431,10 @@ extech_power_meter(const char *extech_name)
 }
 
 
+/*
+ * get one reading from the meter.  not really used by the framework in this
+ * file, but possibly could be used by a different program than extech_rdr.
+ */
  void
 measure(void)
 {
@@ -428,7 +461,7 @@ measure(void)
 
 
 /*
- * store the readings for later inclusion into a database or whatever
+ * store the reading in an array
  */
  void
 store_reading(struct epacket *ep)
@@ -453,7 +486,7 @@ store_reading(struct epacket *ep)
 		//rsp = new readings store address;
 		//continue on
 		//the above isn't implemented yet, so for now we punt.  malloc
-		//latency will have to be addressed.
+		//latency would have to be addressed.
 		return;
 	}
 
@@ -466,6 +499,11 @@ store_reading(struct epacket *ep)
 }
 
 
+/*
+ * the function that runs in the readings thread: a loop reading the
+ * power meter and storing the reading in an array.  loops until
+ * et.end_thread becomes non-zero.
+ */
  void
 sample(void)
 {
@@ -515,6 +553,9 @@ sample(void)
 	}
 }
 
+/*
+ * the readings thread
+ */
  void *
 thread_proc(void *arg)
 {
@@ -522,6 +563,9 @@ thread_proc(void *arg)
 	return 0;
 }
 
+/*
+ * reap the measurement reading thread and save the et.rate in watt-hours
+ */
  void
 end_measurement(void)
 {
@@ -551,6 +595,9 @@ end_measurement(void)
 	debugp("number of readings saved: %d", rs);
 }
 
+/*
+ * create the thread that actually gets the readings
+ */
  void
 start_measurement(void)
 {
@@ -563,6 +610,9 @@ start_measurement(void)
 }
 
 
+/*
+ * for object-oriented correctness, i guess
+ */
  double
 ex_joules_consumed(void)
 {

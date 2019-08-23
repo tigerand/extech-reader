@@ -1,10 +1,10 @@
 /*
- * Copyright 2017, Low Power Company, Inc.
- * Copyright 2017, Andrew Sharp
+ * Copyright 2017-2019, Low Power Company, Inc.
+ * Copyright 2017-2019, Andrew Sharp
  *
  * Copyright 2010, Intel Corporation
  *
- * This file was part of PowerTOP
+ * The original version of this file was part of PowerTOP
  *
  * This program file is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -44,7 +44,8 @@
 #endif
 
 /*
- * completele numbskull hack, and won't catch negative integers and stuff
+ * complete numbskull hack, and won't catch negative integers and other
+ * stuff masquerading as pointers
  */
 #define ISPOINTER(A) ((unsigned long long)(A) > 0x1000ULL)
 
